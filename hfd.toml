@@ -1,0 +1,14 @@
+# Example hfd configuration.
+#
+# Copy this file to $XDG_CONFIG_HOME/hfd.toml (or ~/.config/hfd.toml), or use:
+# hfd --config /path/to/hfd.toml OWNER/REPO
+
+# Number of model files to download concurrently. Default: 4.
+# max_download_jobs = 4
+
+# Concurrent HTTP range requests per model file. Default: 1.
+# max_parallel_parts_per_job = 1
+
+# Optional Hugging Face access token for gated/private repositories.
+# Prefer HF_TOKEN in CI or other shared environments; never commit a real token.
+# huggingface_token = "hf_..."

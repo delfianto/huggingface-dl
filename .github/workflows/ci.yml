@@ -1,0 +1,42 @@
+# CI follows the local justfile gate. Live Hub tests remain opt-in and are not
+# run in CI because they depend on mutable third-party repositories.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: extractions/setup-just@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: just format --check-only
+
+      - name: Lint
+        run: just lint
+
+      - name: Build
+        run: cargo build --all-targets --verbose
+
+      - name: Test
+        run: just test

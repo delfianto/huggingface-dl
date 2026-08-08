@@ -1,0 +1,8 @@
+/target/
+*.part
+*.part.*
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/
