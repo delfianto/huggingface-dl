@@ -25,13 +25,21 @@ and `.onnx` files, plus shard index companions such as
 ```sh
 hfd org/model -o models -r main -j 8
 hfd org/model --all --repo-dir -o models
+hfd org/model -i Q4           # downloads all matching Q4 GGUFs
+hfd org/model -i Q4_K_M       # downloads only that specific quant
 hfd org/model -i 'weights/**' -e '*.json'
+hfd org/model -y              # bypass interactive selection prompt
 hfd org/private-model -t "$HF_TOKEN"
 ```
 
+When running `hfd org/model` interactively without `--include`, an interactive
+TUI selection prompt lets you choose which files to download.
+
 `--all` selects every file. `--include` and `--exclude` match remote relative
-paths (excludes win). Flat output refuses basename collisions; use `--repo-dir`
-to write to `<output>/<owner>/<repo>/` while preserving remote directories.
+paths using glob, substring, or regex patterns (excludes win). Flat output
+refuses basename collisions; use `--repo-dir` to write to
+`<output>/<owner>/<repo>/` while preserving remote directories. Use `-y` /
+`--yes` to skip interactive selection and download all matching artifacts.
 
 Authentication uses `--token` or the `HF_TOKEN` environment variable. Use
 `--endpoint` for a compatible Hub endpoint. Downloads resume from local `.part`

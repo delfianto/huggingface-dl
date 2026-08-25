@@ -9,6 +9,10 @@ pub enum Error {
     InvalidRepo(String),
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),
+    #[error("invalid include/exclude pattern `{0}`")]
+    InvalidPattern(String),
+    #[error("interactive prompt failed: {0}")]
+    Prompt(String),
     #[error("unsafe remote path `{0}`")]
     UnsafePath(String),
     #[error("flat output collision: `{first}` and `{second}` both map to `{name}`; use --repo-dir")]

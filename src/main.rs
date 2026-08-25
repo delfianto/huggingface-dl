@@ -4,12 +4,15 @@ mod error;
 mod hub;
 mod plan;
 mod transfer;
+mod tui;
 
 use clap::Parser;
 use cli::Cli;
 use error::Result;
 use hub::Hub;
 use plan::{build_plan, select_files};
+use std::io::IsTerminal;
+use tui::prompt_selection;
 
 #[tokio::main]
 async fn main() {
@@ -32,7 +35,34 @@ async fn run(cli: Cli) -> Result<()> {
     let repo = cli.repo.validate()?;
     let hub = Hub::new(&cli)?;
     let files = hub.tree(&repo, &cli.revision).await?;
-    let selected = select_files(files, &cli)?;
+    let mut selected = select_files(files, &cli)?;
+
+    let should_prompt = (cli.interactive
+        || (cli.include.is_empty() && !cli.yes && selected.len() > 1))
+        && !cli.dry_run
+        && !cli.json
+        && !cli.quiet
+        && !cli.yes
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal();
+
+    if should_prompt {
+        match prompt_selection(&repo, selected)? {
+            Some(chosen) if chosen.is_empty() => {
+                if !cli.quiet {
+                    println!("No files selected.");
+                }
+                return Ok(());
+            }
+            Some(chosen) => {
+                selected = chosen;
+            }
+            None => {
+                return Ok(());
+            }
+        }
+    }
+
     let plan = build_plan(&repo, selected, &cli)?;
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&plan)?);

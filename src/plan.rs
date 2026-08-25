@@ -2,7 +2,6 @@ use crate::{
     cli::{Cli, Repo},
     error::{Error, Result},
 };
-use globset::{Glob, GlobSetBuilder};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -11,16 +10,102 @@ use std::{
 
 const ARTIFACTS: &[&str] = &["safetensors", "gguf", "bin", "pt", "pth", "ckpt", "onnx"];
 const SHARD_INDEX_SUFFIXES: &[&str] = &[".safetensors.index.json", ".bin.index.json"];
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFile {
     pub path: String,
     pub size: u64,
 }
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PlannedFile {
     pub remote: String,
     pub size: u64,
     pub destination: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct PatternMatcher {
+    patterns: Vec<Pattern>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    glob: Option<globset::GlobMatcher>,
+    regex: Option<regex::Regex>,
+}
+
+impl Pattern {
+    pub fn parse(s: &str) -> Result<Self> {
+        let glob = globset::GlobBuilder::new(s)
+            .case_insensitive(true)
+            .literal_separator(false)
+            .build()
+            .ok()
+            .map(|g| g.compile_matcher());
+
+        let regex = regex::RegexBuilder::new(s)
+            .case_insensitive(true)
+            .build()
+            .ok();
+
+        if glob.is_none() && regex.is_none() {
+            return Err(Error::InvalidPattern(s.to_string()));
+        }
+
+        Ok(Self { glob, regex })
+    }
+
+    pub fn is_match(&self, path: &str) -> bool {
+        if let Some(glob) = &self.glob
+            && glob.is_match(path)
+        {
+            return true;
+        }
+        if let Some(regex) = &self.regex
+            && regex.is_match(path)
+        {
+            return true;
+        }
+        false
+    }
+}
+
+impl PatternMatcher {
+    pub fn new(patterns: &[String]) -> Result<Self> {
+        let compiled = patterns
+            .iter()
+            .map(|p| Pattern::parse(p))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { patterns: compiled })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.patterns.is_empty()
+    }
+
+    pub fn is_match(&self, path: &str) -> bool {
+        self.patterns.iter().any(|p| p.is_match(path))
+    }
+}
+
+pub fn format_bytes(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    const GIB: u64 = 1024 * MIB;
+    const TIB: u64 = 1024 * GIB;
+
+    if bytes >= TIB {
+        format!("{:.2} TB", bytes as f64 / TIB as f64)
+    } else if bytes >= GIB {
+        format!("{:.2} GB", bytes as f64 / GIB as f64)
+    } else if bytes >= MIB {
+        format!("{:.2} MB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.2} KB", bytes as f64 / KIB as f64)
+    } else {
+        format!("{bytes} B")
+    }
 }
 
 pub fn safe_path(path: &str) -> bool {
@@ -29,17 +114,10 @@ pub fn safe_path(path: &str) -> bool {
             .components()
             .all(|c| matches!(c, Component::Normal(_)))
 }
+
 pub fn select_files(files: Vec<RemoteFile>, cli: &Cli) -> Result<Vec<RemoteFile>> {
-    let mut inc = GlobSetBuilder::new();
-    for x in &cli.include {
-        inc.add(Glob::new(x)?);
-    }
-    let inc = inc.build()?;
-    let mut exc = GlobSetBuilder::new();
-    for x in &cli.exclude {
-        exc.add(Glob::new(x)?);
-    }
-    let exc = exc.build()?;
+    let inc = PatternMatcher::new(&cli.include)?;
+    let exc = PatternMatcher::new(&cli.exclude)?;
     Ok(files
         .into_iter()
         .filter(|f| {
@@ -51,9 +129,8 @@ pub fn select_files(files: Vec<RemoteFile>, cli: &Cli) -> Result<Vec<RemoteFile>
                 || SHARD_INDEX_SUFFIXES
                     .iter()
                     .any(|suffix| f.path.ends_with(suffix));
-            let selected = cli.all
-                || !cli.include.is_empty() && inc.is_match(&f.path)
-                || cli.include.is_empty() && artifact;
+            let selected =
+                cli.all || !inc.is_empty() && inc.is_match(&f.path) || inc.is_empty() && artifact;
             selected && !exc.is_match(&f.path)
         })
         .collect())
@@ -165,5 +242,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(selected.len(), 1);
+    }
+    #[test]
+    fn include_quant_patterns() {
+        let files = vec![
+            RemoteFile {
+                path: "model-Q4_0.gguf".into(),
+                size: 100,
+            },
+            RemoteFile {
+                path: "model-Q4_K_M.gguf".into(),
+                size: 200,
+            },
+            RemoteFile {
+                path: "model-Q4_K_S.gguf".into(),
+                size: 150,
+            },
+            RemoteFile {
+                path: "model-Q8_0.gguf".into(),
+                size: 400,
+            },
+            RemoteFile {
+                path: "README.md".into(),
+                size: 10,
+            },
+        ];
+
+        // --include Q4 should match all Q4 variants
+        let c_q4 = cli(&["hfd", "o/r", "-i", "Q4"]);
+        let sel_q4 = select_files(files.clone(), &c_q4).unwrap();
+        let paths_q4: Vec<_> = sel_q4.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths_q4,
+            vec!["model-Q4_0.gguf", "model-Q4_K_M.gguf", "model-Q4_K_S.gguf"]
+        );
+
+        // --include Q4_K_M should only match that exact quant
+        let c_q4km = cli(&["hfd", "o/r", "-i", "Q4_K_M"]);
+        let sel_q4km = select_files(files.clone(), &c_q4km).unwrap();
+        let paths_q4km: Vec<_> = sel_q4km.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths_q4km, vec!["model-Q4_K_M.gguf"]);
+
+        // Case insensitivity: --include q4_k_m matches Q4_K_M
+        let c_lower = cli(&["hfd", "o/r", "-i", "q4_k_m"]);
+        let sel_lower = select_files(files.clone(), &c_lower).unwrap();
+        let paths_lower: Vec<_> = sel_lower.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths_lower, vec!["model-Q4_K_M.gguf"]);
+
+        // Regex pattern: Q4_K_[MS] matches Q4_K_M and Q4_K_S
+        let c_regex = cli(&["hfd", "o/r", "-i", "Q4_K_[MS]"]);
+        let sel_regex = select_files(files, &c_regex).unwrap();
+        let paths_regex: Vec<_> = sel_regex.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths_regex, vec!["model-Q4_K_M.gguf", "model-Q4_K_S.gguf"]);
+    }
+    #[test]
+    fn format_bytes_examples() {
+        assert_eq!(format_bytes(500), "500 B");
+        assert_eq!(format_bytes(1024), "1.00 KB");
+        assert_eq!(format_bytes(10 * 1024 * 1024), "10.00 MB");
+        assert_eq!(format_bytes(4 * 1024 * 1024 * 1024), "4.00 GB");
     }
 }

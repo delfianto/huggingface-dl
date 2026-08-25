@@ -16,6 +16,7 @@ do not edit it as part of work on `hfd`.
 - `src/hub.rs`: Hugging Face tree discovery and URL/status handling.
 - `src/plan.rs`: file selection, remote-path safety, output layout.
 - `src/transfer.rs`: concurrent streaming, resume, and atomic completion.
+- `src/tui.rs`: interactive file selection prompt.
 - `tests/live_hub.rs`: opt-in live discovery tests; never download model data.
 
 ## Behavior contracts

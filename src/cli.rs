@@ -18,10 +18,13 @@ pub struct Cli {
     pub repo_dir: bool,
     #[arg(short = 'r', long, default_value = "main")]
     pub revision: String,
+    /// Include files matching pattern or regex (e.g. 'Q4', 'Q4_K_M', '*.gguf')
     #[arg(short = 'i', long)]
     pub include: Vec<String>,
+    /// Exclude files matching pattern or regex (e.g. '*.bin', 'Q4_0')
     #[arg(short = 'e', long)]
     pub exclude: Vec<String>,
+    /// Include all repository files instead of default model artifacts
     #[arg(long)]
     pub all: bool,
     #[arg(short = 't', long, env = "HF_TOKEN")]
@@ -39,6 +42,12 @@ pub struct Cli {
     pub json: bool,
     #[arg(long)]
     pub quiet: bool,
+    /// Force interactive selection prompt
+    #[arg(long)]
+    pub interactive: bool,
+    /// Non-interactive mode: download all matching files without prompting
+    #[arg(short = 'y', long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Clone)]
